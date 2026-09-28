@@ -1,0 +1,6 @@
+Windows Registry Editor Version 5.00
+
+; CapsLock(003A) -> Hangul(E072)
+; Hangul key candidates (0072, E072, 00F2, E0F2) -> CapsLock(003A)
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Keyboard Layout]
+"Scancode Map"=hex:00,00,00,00,00,00,00,00,06,00,00,00,72,e0,3a,00,3a,00,72,00,3a,00,72,e0,3a,00,f2,00,3a,00,f2,e0,00,00,00,00
