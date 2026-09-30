@@ -4,6 +4,8 @@
   "filter": {
     "start_on": true,
     "preset": "smart_invert",
+    "background": null,
+    "text": null,
     "matrix": null
   },
   "mask": {

@@ -1,27 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-window_overlay.py - 윈도우 색 필터 + 영역 가림 오버레이
-
-요구 사항  Windows 10/11, 64비트 Python 3.8 이상 (외부 패키지 없음, 관리자 권한 불필요)
-실행       python window_overlay.py    (콘솔 창에 상태와 좌표가 출력됩니다)
-설정       같은 폴더의 window_overlay.json (스크립트와 같은 이름, 없으면 기본값으로 만들어짐)
-
-기본 단축키 (설정 파일의 hotkeys에서 변경)
-  Ctrl+Alt+F    필터 켜기/끄기
-  Ctrl+Alt+M    가림 영역 전체 켜기/끄기
-  Ctrl+Alt+1..  가림 영역 개별 켜기/끄기 (영역마다 "hotkey" 지정, 같은 키를 주면 묶어서 토글)
-  Ctrl+Alt+P    좌표 따기: 마우스 위치를 창 기준으로 출력,
-                같은 창에서 두 번 누르면 두 점을 모서리로 하는 영역 JSON을 만들어 클립보드에 복사
-  Ctrl+Alt+R    설정 다시 읽기
-  Ctrl+Alt+Q    종료
-
-좌표 규칙 (left / top / right / bottom 각각, 기준은 대상 창의 왼쪽 위 모서리)
-  0 이상 숫자   창 왼쪽(top·bottom은 위)에서의 거리(px)
-  음수          창 오른쪽(아래)에서의 거리(px)     예: "bottom": -110
-  "50%"         창 너비(높이)에 대한 비율          예: 오른쪽 끝 = "100%"
-  dpi_scale이 true면 px 값은 배율 100% 기준이고, 모니터 배율에 맞춰 자동으로 곱해집니다.
-"""
-
 import ctypes
 import json
 import os
@@ -31,7 +7,6 @@ import sys
 CONFIG_PATH = os.path.splitext(os.path.abspath(__file__))[0] + ".json"
 CLASS_NAME = "WindowOverlay"
 
-# MAGCOLOREFFECT 행렬: 행 = 입력 R, G, B, A, 상수 / 열 = 출력 R, G, B, A, (1)
 PRESETS = {
     "smart_invert": [
         [0.574, -0.426, -0.426, 0.0, 0.0],
@@ -59,7 +34,7 @@ PRESETS = {
 DEFAULT_CONFIG = {
     "refresh_ms": 16,
     "dpi_scale": True,
-    "filter": {"start_on": True, "preset": "smart_invert", "matrix": None},
+    "filter": {"start_on": True, "preset": "smart_invert", "background": None, "text": None, "matrix": None},
     "mask": {"start_on": True, "click_through": True, "alpha": 255, "color": "#1B1F27"},
     "hotkeys": {
         "filter": "ctrl+alt+f",
@@ -86,7 +61,6 @@ DEFAULT_CONFIG = {
     ],
 }
 
-# ---------------------------------------------------------------- Win32 상수
 WS_POPUP, WS_CHILD, WS_VISIBLE = 0x80000000, 0x40000000, 0x10000000
 WS_EX_TRANSPARENT, WS_EX_TOOLWINDOW = 0x00000020, 0x00000080
 WS_EX_LAYERED, WS_EX_NOACTIVATE = 0x00080000, 0x08000000
@@ -118,9 +92,7 @@ _VKEYS.update({"f%d" % i: 0x6F + i for i in range(1, 25)})
 _VKEYS.update({"numpad%d" % i: 0x60 + i for i in range(10)})
 
 
-# ---------------------------------------------------------------- 순수 함수 (Windows API 없이 동작)
 def resolve_edge(value, size, scale):
-    """좌표 한 개를 창 왼쪽/위 기준 실제 px로 바꾼다."""
     if isinstance(value, str):
         text = value.strip()
         if text.endswith("%"):
@@ -132,7 +104,6 @@ def resolve_edge(value, size, scale):
 
 
 def resolve_rect(spec, width, height, scale):
-    """{left, top, right, bottom} 설정을 창 기준 (l, t, r, b)로 바꾼다. 비어 있으면 None."""
     left = resolve_edge(spec.get("left", 0), width, scale)
     top = resolve_edge(spec.get("top", 0), height, scale)
     right = resolve_edge(spec.get("right", "100%"), width, scale)
@@ -145,7 +116,6 @@ def resolve_rect(spec, width, height, scale):
 
 
 def edge_value(rel, size, scale):
-    """좌표 따기용: 가까운 쪽 모서리 기준 설정값을 만든다."""
     rel = max(0, min(rel, size))
     if rel <= size / 2:
         return int(round(rel / scale))
@@ -154,7 +124,6 @@ def edge_value(rel, size, scale):
 
 
 def parse_color(text, default=0x00271F1B):
-    """'#RRGGBB' -> COLORREF(0x00BBGGRR)"""
     try:
         s = str(text).strip().lstrip("#")
         r, g, b = int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
@@ -164,7 +133,6 @@ def parse_color(text, default=0x00271F1B):
 
 
 def parse_hotkey(text):
-    """'ctrl+alt+f' -> (modifiers, virtual key)"""
     parts = [p for p in str(text).replace(" ", "").lower().split("+") if p]
     mods, vk = 0, None
     for p in parts:
@@ -201,6 +169,29 @@ def match_profile(profile, cls, title):
     return True
 
 
+def parse_rgb(text):
+    s = str(text).strip().lstrip("#")
+    if len(s) != 6:
+        raise ValueError("색은 #RRGGBB 형식이어야 합니다: %r" % text)
+    try:
+        return tuple(int(s[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+    except ValueError:
+        raise ValueError("색은 #RRGGBB 형식이어야 합니다: %r" % text)
+
+
+def tone_matrix(base, background, text):
+    bg = parse_rgb(background or "#000000")
+    fg = parse_rgb(text or "#FFFFFF")
+    k = [fg[j] - bg[j] for j in range(3)]
+    m = [list(row) for row in base]
+    for i in range(3):
+        for j in range(3):
+            m[i][j] = round(base[i][j] * k[j], 4)
+    for j in range(3):
+        m[4][j] = round(bg[j] + k[j] * base[4][j], 4)
+    return m
+
+
 def matrix_for(filter_cfg):
     m = filter_cfg.get("matrix")
     if m:
@@ -210,11 +201,25 @@ def matrix_for(filter_cfg):
     name = filter_cfg.get("preset") or "smart_invert"
     if name not in PRESETS:
         raise ValueError("알 수 없는 preset '%s' (사용 가능: %s)" % (name, ", ".join(PRESETS)))
+    background, text = filter_cfg.get("background"), filter_cfg.get("text")
+    if background or text:
+        base = PRESETS[name] if name in ("smart_invert", "invert") else PRESETS["smart_invert"]
+        return tone_matrix(base, background, text)
     return PRESETS[name]
 
 
+def describe_filter(filter_cfg):
+    if filter_cfg.get("matrix"):
+        return "사용자 행렬"
+    name = filter_cfg.get("preset") or "smart_invert"
+    background, text = filter_cfg.get("background"), filter_cfg.get("text")
+    if background or text:
+        base = name if name in ("smart_invert", "invert") else "smart_invert"
+        return "%s, 배경 %s / 글자 %s" % (base, background or "#000000", text or "#FFFFFF")
+    return name
+
+
 def validate_regions(cfg):
-    """좌표 형식 오류를 시작할 때 미리 잡는다."""
     for p in cfg.get("profiles") or []:
         pname = p.get("name", "?")
         specs = [("filter_area", p.get("filter_area") or {})]
@@ -247,7 +252,6 @@ def load_config(path):
     return cfg
 
 
-# ---------------------------------------------------------------- Win32 바인딩
 IS_WIN = os.name == "nt"
 
 if IS_WIN:
@@ -391,7 +395,6 @@ if IS_WIN:
     WNDPROC_REF = WNDPROC(_wndproc)
 
 
-# ---------------------------------------------------------------- Win32 도우미
 def get_class(hwnd):
     buf = ctypes.create_unicode_buffer(256)
     GetClassNameW(hwnd, buf, 256)
@@ -412,7 +415,6 @@ def is_cloaked(hwnd):
 
 
 def get_base_rect(hwnd, base):
-    """대상 창의 화면 좌표 (l, t, r, b). frame = 보이는 창 테두리, client = 클라이언트 영역"""
     rc = wintypes.RECT()
     if base == "client":
         if not GetClientRect(hwnd, ctypes.byref(rc)):
@@ -456,7 +458,6 @@ def region_minus(width, height, holes):
 
 
 def copy_to_clipboard(text, owner):
-    """owner: 이 프로그램의 창 핸들 (NULL로 열면 SetClipboardData가 실패할 수 있음)"""
     data = text.encode("utf-16-le") + b"\x00\x00"
     if not OpenClipboard(owner):
         return False
@@ -499,10 +500,7 @@ def register_window_class():
         raise ctypes.WinError(ctypes.get_last_error())
 
 
-# ---------------------------------------------------------------- 대상 창 하나에 붙는 오버레이
 class Overlay:
-    """필터 창(돋보기 컨트롤)과 가림 창을 대상 창 바로 위에 붙여서 따라다니게 한다."""
-
     def __init__(self, app, target, pi):
         self.app, self.target, self.pi = app, target, pi
         self.profile = app.cfg["profiles"][pi]
@@ -574,7 +572,6 @@ class Overlay:
         DestroyWindow(self.host)
 
     def _stacked(self, hwnds):
-        """대상 창 바로 위에 hwnds가 순서대로 있는지 (숨겨 둔 우리 창은 건너뜀)"""
         below = self.target
         for hw in hwnds:
             above = GetWindow(below, GW_HWNDPREV)
@@ -586,7 +583,6 @@ class Overlay:
         return True
 
     def update(self):
-        """매 틱 호출. 대상 창이 사라졌으면 False."""
         app, target = self.app, self.target
         if not IsWindow(target):
             return False
@@ -658,12 +654,11 @@ class Overlay:
             stack.append((self.mask, mask_geom[:4]))
         if stack and (changed or not all(self.vis[hw] for hw, _ in stack)
                       or not self._stacked([hw for hw, _ in stack])):
-            # 대상 창 바로 위에 끼워 넣는다 (다른 창이 대상 창을 가리면 오버레이도 같이 가려짐)
             above = GetWindow(target, GW_HWNDPREV)
             while above and above in app.own:
                 above = GetWindow(above, GW_HWNDPREV)
             if above and GetWindowLongPtrW(above, GWL_EXSTYLE) & WS_EX_TOPMOST:
-                above = None  # 항상 위 창 아래에 끼우면 오버레이까지 항상 위가 되므로 일반 창 맨 위로
+                above = None
             after = above or HWND_TOP
             for hw, (x, y, w, h) in stack:
                 SetWindowPos(hw, after, x, y, w, h, SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW)
@@ -676,7 +671,6 @@ class Overlay:
         return True
 
 
-# ---------------------------------------------------------------- 앱
 class App:
     def __init__(self, path):
         self.path = path
@@ -694,7 +688,6 @@ class App:
         self.load()
         self.print_help()
 
-    # ---- 설정
     def load(self):
         cfg = load_config(self.path)
         matrix = matrix_for(cfg["filter"])
@@ -768,12 +761,11 @@ class App:
         print(" 윈도우 오버레이 실행 중   설정 파일:", self.path)
         for line in self.hotkey_lines:
             print(line)
-        preset = "사용자 행렬" if self.cfg["filter"].get("matrix") else self.cfg["filter"].get("preset")
+        preset = describe_filter(self.cfg["filter"])
         print(" 현재: 필터 %s (%s) / 가림 %s" % ("켬" if self.filter_on else "끔", preset,
                                               "켬" if self.mask_on else "끔"))
         print("=" * 64)
 
-    # ---- 동작
     def toggle_filter(self):
         self.filter_on = not self.filter_on
         print("[필터] %s" % ("켬" if self.filter_on else "끔"))
@@ -865,7 +857,6 @@ class App:
         print("[종료] 오버레이를 닫습니다.")
         PostQuitMessage(0)
 
-    # ---- 창 추적
     def rebuild_own(self):
         self.own = set()
         for ov in self.overlays.values():
