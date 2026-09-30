@@ -1,0 +1,60 @@
+{
+  "refresh_ms": 16,
+  "dpi_scale": true,
+  "filter": {
+    "start_on": true,
+    "preset": "smart_invert",
+    "matrix": null
+  },
+  "mask": {
+    "start_on": true,
+    "click_through": true,
+    "alpha": 255,
+    "color": "#1B1F27"
+  },
+  "hotkeys": {
+    "filter": "ctrl+alt+f",
+    "mask": "ctrl+alt+m",
+    "pick": "ctrl+alt+p",
+    "reload": "ctrl+alt+r",
+    "quit": "ctrl+alt+q"
+  },
+  "profiles": [
+    {
+      "name": "기본",
+      "enabled": true,
+      "match": {
+        "class": "LyncConversationWindowClass",
+        "title_contains": ""
+      },
+      "base": "frame",
+      "filter_area": {
+        "left": 0,
+        "top": 0,
+        "right": "100%",
+        "bottom": "100%"
+      },
+      "filter_holes": [],
+      "masks": [
+        {
+          "name": "하단 버튼줄(예시)",
+          "left": 0,
+          "top": -44,
+          "right": "100%",
+          "bottom": "100%",
+          "hotkey": "ctrl+alt+1",
+          "enabled": true
+        },
+        {
+          "name": "사진 열(예시)",
+          "left": 0,
+          "top": 80,
+          "right": 52,
+          "bottom": -120,
+          "hotkey": "ctrl+alt+2",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}
